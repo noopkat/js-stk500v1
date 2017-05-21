@@ -6,7 +6,15 @@ var sendCommand = require('./lib/sendCommand');
 var stk500 = function (opts) {
   this.opts = opts || {};
   this.quiet = this.opts.quiet || false;
-  this.log = (this.quiet) ? function(){} : console.log;
+  if(this.quiet){
+    this.log = function(){};
+  }else{
+    if(window){
+      this.log = console.log.bind(window);
+    }else{
+      this.log = console.log;
+    }
+  }
 }
 
 stk500.prototype.sync = function (stream, attempts, timeout, done) {
@@ -55,7 +63,11 @@ stk500.prototype.verifySignature = function (stream, signature, timeout, done) {
     timeout: timeout
   };
   sendCommand(stream, opt, function (err, data) {
-		self.log('confirm signature', err, data, data.toString('hex'));
+    if(data){
+      self.log('confirm signature', err, data, data.toString('hex'));
+    }else{
+      self.log('confirm signature', err, 'no data');
+    }
     done(err, data);
   });
 };
