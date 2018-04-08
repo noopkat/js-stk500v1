@@ -1,97 +1,97 @@
-var async = require("async");
-var bufferEqual = require('buffer-equal');
-var Statics = require('./lib/statics');
-var sendCommand = require('./lib/sendCommand');
+const Statics = require('./lib/statics');
+const asyncWrap = require('./lib/asyncWrapper');
+const sendCommand = asyncWrap(require('./lib/sendCommand'));
 
-var stk500 = function (opts) {
+const sleep = (time) => new Promise((resolve, reject) => {setTimeout(() => resolve(), time)});
+
+const stk500 = function (opts) {
   this.opts = opts || {};
   this.quiet = this.opts.quiet || false;
-  if(this.quiet){
+  var window = window || undefined;
+  if (this.quiet) {
     this.log = function(){};
-  }else{
-    if(window){
+  } else {
+    if (window) {
       this.log = console.log.bind(window);
-    }else{
+    } else {
       this.log = console.log;
     }
   }
 }
 
-stk500.prototype.sync = function (stream, attempts, timeout, done) {
-	this.log("sync");
-	var self = this;
-	var tries = 1;
+stk500.prototype.sync = async function (stream, limit) {
+  this.log('sync');
+  let tries = 1;
 
-  var opt = {
-    cmd: [
-      Statics.Cmnd_STK_GET_SYNC
-    ],
+  const opt = {
+    cmd: [Statics.Cmnd_STK_GET_SYNC],
     responseData: Statics.OK_RESPONSE,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  function attempt () {
-		tries=tries+1;
-    sendCommand(stream, opt, function (err, data) {
-			if (err && tries <= attempts) {
-        if (err) {
-          self.log(err);
-        }
-				self.log("failed attempt again", tries);
-				return attempt();
-      }
-      self.log('sync complete', err, data, tries);
-      done(err, data);
-    });
+
+  const trySync = async () => {
+    tries +=1;
+    const [error, result] = await sendCommand(stream, opt);
+    if (error && tries <= limit) {
+      this.log('sync error:', error); 
+      return await trySync();
+    }
+
+    this.log('sync complete', result, tries);
+    if (error) throw error;
+    else return result;
   }
-  attempt();
+
+  await trySync();
 };
 
-stk500.prototype.verifySignature = function (stream, signature, timeout, done) {
-	this.log("verify signature");
-	var self = this;
-	match = Buffer.concat([
-    new Buffer([Statics.Resp_STK_INSYNC]),
+stk500.prototype.verifySignature = async function (stream) {
+  this.log('verify signature');
+
+  const {timeout, signature} = this.opts;
+  const match = Buffer.concat([
+    Buffer.from([Statics.Resp_STK_INSYNC]),
     signature,
-    new Buffer([Statics.Resp_STK_OK])
+    Buffer.from([Statics.Resp_STK_OK])
   ]);
 
-  var opt = {
-    cmd: [
-      Statics.Cmnd_STK_READ_SIGN
-    ],
+  const opt = {
+    cmd: [Statics.Cmnd_STK_READ_SIGN],
     responseLength: match.length,
-    timeout: timeout
+    timeout: timeout 
   };
-  sendCommand(stream, opt, function (err, data) {
-    if(data){
-      self.log('confirm signature', err, data, data.toString('hex'));
-    }else{
-      self.log('confirm signature', err, 'no data');
-    }
-    done(err, data);
-  });
+
+  const [error, result] = await sendCommand(stream, opt);
+  if (error) {
+    this.log('confirm signature', 'no data');
+    throw new Error('no signature response');
+  }
+  if (Buffer.compare(result, match)) {
+    this.log('confirm signature', 'mismatch');
+    throw new Error(`signature did not match. Expected: ${match.slice(1, -1).toString('hex')} Actual: ${result.toString('hex')}`); 
+  }
+  this.log('confirm signature', result, result.toString('hex'));
+  return result;
 };
 
-stk500.prototype.getSignature = function (stream, timeout, done) {
-	this.log("get signature");
-  var opt = {
-    cmd: [
-      Statics.Cmnd_STK_READ_SIGN
-    ],
+stk500.prototype.getSignature = async function (stream) {
+  this.log('get signature');
+  const opt = {
+    cmd: [Statics.Cmnd_STK_READ_SIGN],
     responseLength: 5,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-    this.log('getSignature', err, data);
-    done(err, data);
-  });
+
+  const [error, data] = await sendCommand(stream, opt);
+  this.log('getSignature', error, data);
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.setOptions = function (stream, options, timeout, done) {
-	this.log("set device");
-	var self = this;
-	
-  var opt = {
+stk500.prototype.setOptions = async function (stream, options) {
+  this.log('set device');
+  
+  const opt = {
     cmd: [
       Statics.Cmnd_STK_SET_DEVICE,
       options.devicecode || 0,
@@ -116,233 +116,172 @@ stk500.prototype.setOptions = function (stream, options, timeout, done) {
       options.flashsize1 || 0
     ],
     responseData: Statics.OK_RESPONSE,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-    self.log('setOptions', err, data);
-    if (err) {
-      return done(err);
-    }
-    done();
-  });
+  
+  const [error, data] = await sendCommand(stream, opt);
+  this.log('setOptions', error, data);
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.enterProgrammingMode = function (stream, timeout, done) {
-	this.log("send enter programming mode");
-  var self = this;
-  var opt = {
-    cmd: [
-      Statics.Cmnd_STK_ENTER_PROGMODE
-    ],
+stk500.prototype.enterProgrammingMode = async function (stream) {
+  this.log('send enter programming mode');
+
+  const opt = {
+    cmd: [Statics.Cmnd_STK_ENTER_PROGMODE],
     responseData: Statics.OK_RESPONSE,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-		self.log("sent enter programming mode", err, data);
-    done(err, data);
-  });
+
+  const [error, data] = await sendCommand(stream, opt); 
+  this.log('sent enter programming mode', error, data);
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.loadAddress = function (stream, useaddr, timeout, done) {
-	this.log("load address");
-  var self = this;
-	var addr_low = useaddr & 0xff;
-	var addr_high = (useaddr >> 8) & 0xff;
-  var opt = {
+stk500.prototype.loadAddress = async function (stream, useaddr) {
+  this.log('load address', useaddr);
+
+  const addrLow = useaddr & 0xff;
+  const addrHigh = (useaddr >> 8) & 0xff;
+  const opt = {
     cmd: [
       Statics.Cmnd_STK_LOAD_ADDRESS,
-      addr_low,
-      addr_high
+      addrLow,
+      addrHigh
     ],
     responseData: Statics.OK_RESPONSE,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-		self.log('loaded address', err, data);
-    done(err, data);
-  });
+
+  const [error, data] = await sendCommand(stream, opt);
+  this.log('loaded address', error, data);
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.loadPage = function (stream, writeBytes, timeout, done) {
-	this.log("load page");
-  var self = this;
-	var bytes_low = writeBytes.length & 0xff;
-	var bytes_high = writeBytes.length >> 8;
+stk500.prototype.loadPage = async function (stream, writeBytes) {
+  this.log('load page');
+  const bytesLow = writeBytes.length & 0xff;
+  const bytesHigh = writeBytes.length >> 8;
 
-	var cmd = Buffer.concat([
-    new Buffer([Statics.Cmnd_STK_PROG_PAGE, bytes_high, bytes_low, 0x46]),
+  const cmd = Buffer.concat([
+    Buffer.from([Statics.Cmnd_STK_PROG_PAGE, bytesHigh, bytesLow, 0x46]),
     writeBytes,
-    new Buffer([Statics.Sync_CRC_EOP])
+    Buffer.from([Statics.Sync_CRC_EOP])
   ]);
 
-  var opt = {
+  const opt = {
     cmd: cmd,
     responseData: Statics.OK_RESPONSE,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-		self.log('loaded page', err, data);
-    done(err, data);
-  });
+
+  const [error, data] = await sendCommand(stream, opt);
+  this.log('loaded page', error, data);
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.upload = function (stream, hex, pageSize, timeout, done) {
-	this.log("program");
 
-	var pageaddr = 0;
-	var writeBytes;
-	var useaddr;
+stk500.prototype.upload = async function (stream, hex) {
+  this.log('program');
 
-	var self = this;
+  const {timeout, pageSize} = this.opts;
+ 
+  for (let pageaddr = 0; pageaddr < hex.length; pageaddr += pageSize) {
+    this.log('program page');
+    const useaddr = pageaddr >> 1;
+    const endOfPage = (hex.length > pageSize) ? (pageaddr + pageSize) : hex.length - 1;
+    const writeBytes = hex.slice(pageaddr, endOfPage);
+    
+    await this.loadAddress(stream, useaddr, timeout);
+    await this.loadPage(stream, writeBytes, pageSize, timeout);
+    this.log('programmed page');
+    await sleep(4);
+  }
 
-	// program individual pages
-  async.whilst(
-    function() { return pageaddr < hex.length; },
-    function(pagedone) {
-			self.log("program page");
-      async.series([
-      	function(cbdone){
-      		useaddr = pageaddr >> 1;
-      		cbdone();
-      	},
-      	function(cbdone){
-      		self.loadAddress(stream, useaddr, timeout, cbdone);
-      	},
-        function(cbdone){
-
-					writeBytes = hex.slice(pageaddr, (hex.length > pageSize ? (pageaddr + pageSize) : hex.length - 1))
-        	cbdone();
-        },
-        function(cbdone){
-        	self.loadPage(stream, writeBytes, timeout, cbdone);
-        },
-        function(cbdone){
-					self.log("programmed page");
-        	pageaddr =  pageaddr + writeBytes.length;
-        	setTimeout(cbdone, 4);
-        }
-      ],
-      function(error) {
-      	self.log("page done");
-      	pagedone(error);
-      });
-    },
-    function(error) {
-    	self.log("upload done");
-    	done(error);
-    }
-  );
+  return;
 };
 
-stk500.prototype.exitProgrammingMode = function (stream, timeout, done) {
-	this.log("send leave programming mode");
-  var self = this;
-  var opt = {
-    cmd: [
-      Statics.Cmnd_STK_LEAVE_PROGMODE
-    ],
+stk500.prototype.exitProgrammingMode = async function (stream) {
+  this.log('send leave programming mode');
+  const opt = {
+    cmd: [Statics.Cmnd_STK_LEAVE_PROGMODE],
     responseData: Statics.OK_RESPONSE,
-    timeout: timeout
+    timeout: this.opts.timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-		self.log('sent leave programming mode', err, data);
-    done(err, data);
-  });
+
+  const [error, data] = await sendCommand(stream, opt);
+  this.log('sent leave programming mode', error, data);
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.verify = function (stream, hex, pageSize, timeout, done) {
-	this.log("verify");
+stk500.prototype.verify = async function (stream, hex) {
+  this.log('verify');
 
-	var pageaddr = 0;
-	var writeBytes;
-	var useaddr;
+  const {timeout, pageSize} = this.opts;
 
-	var self = this;
-
-	// verify individual pages
-  async.whilst(
-    function() { return pageaddr < hex.length; },
-    function(pagedone) {
-			self.log("verify page");
-      async.series([
-      	function(cbdone){
-      		useaddr = pageaddr >> 1;
-      		cbdone();
-      	},
-      	function(cbdone){
-      		self.loadAddress(stream, useaddr, timeout, cbdone);
-      	},
-        function(cbdone){
-
-					writeBytes = hex.slice(pageaddr, (hex.length > pageSize ? (pageaddr + pageSize) : hex.length - 1))
-        	cbdone();
-        },
-        function(cbdone){
-        	self.verifyPage(stream, writeBytes, pageSize, timeout, cbdone);
-        },
-        function(cbdone){
-					self.log("verified page");
-        	pageaddr =  pageaddr + writeBytes.length;
-        	setTimeout(cbdone, 4);
-        }
-      ],
-      function(error) {
-      	self.log("verify done");
-      	pagedone(error);
-      });
-    },
-    function(error) {
-    	self.log("verify done");
-    	done(error);
-    }
-  );
+  for (let pageaddr = 0; pageaddr < hex.length; pageaddr += pageSize) {
+    this.log('verify page');
+    const useaddr = pageaddr >> 1;
+    const endOfPage = (hex.length > pageSize) ? (pageaddr + pageSize) : hex.length - 1;
+    const expectedBytes = hex.slice(pageaddr, endOfPage);
+    
+    await this.loadAddress(stream, useaddr, timeout);
+    const pageBytes = await this.readPage(stream, expectedBytes, pageSize, timeout);
+    const isSame = !Buffer.compare(pageBytes.slice(1, -1), expectedBytes);
+    if (!isSame) return Promise.reject(new Error(`page address ${pageaddr} did not match hex file written. Expected: ${expectedBytes.toString('hex')} Actual: ${pageBytes.toString('hex')}`));
+    this.log('verified page');
+    await sleep(4); 
+  }
+  return;
 };
 
-stk500.prototype.verifyPage = function (stream, writeBytes, pageSize, timeout, done) {
-	this.log("verify page");
-	var self = this;
-	match = Buffer.concat([
-    new Buffer([Statics.Resp_STK_INSYNC]),
+stk500.prototype.readPage = async function (stream, writeBytes) {
+  this.log('verify page');
+
+  const {timeout, pageSize} = this.opts;
+  const match = Buffer.concat([
+    Buffer.from([Statics.Resp_STK_INSYNC]),
     writeBytes,
-    new Buffer([Statics.Resp_STK_OK])
+    Buffer.from([Statics.Resp_STK_OK])
   ]);
 
-	var size = writeBytes.length >= pageSize ? pageSize : writeBytes.length;
+  const size = (writeBytes.length >= pageSize) ? pageSize : writeBytes.length;
 
-  var opt = {
+  const opt = {
     cmd: [
       Statics.Cmnd_STK_READ_PAGE,
-      (size>>8) & 0xff,
+      (size >> 8) & 0xff,
       size & 0xff,
       0x46
     ],
     responseLength: match.length,
     timeout: timeout
   };
-  sendCommand(stream, opt, function (err, data) {
-		self.log('confirm page', err, data, data.toString('hex'));
-    done(err, data);
-  }); 
+
+  const [error, data] = await sendCommand(stream, opt);
+  this.log('confirm page', error, data, data.toString('hex'));
+  if (error) throw error;
+  else return data;
 };
 
-stk500.prototype.bootload = function (stream, hex, opt, done) {
+stk500.prototype.bootload = async function (stream, hex) {
+  const parameters = {
+    pagesizehigh: (this.opts.pagesizehigh << 8) & 0xff,
+    pagesizelow: this.opts.pagesizelow & 0xff
+  };
 
-  var parameters = {
-    pagesizehigh: (opt.pagesizehigh<<8 & 0xff),
-    pagesizelow: opt.pagesizelow & 0xff
-  }
-
-  async.series([
-    this.sync.bind(this, stream, 3, opt.timeout),
-    this.verifySignature.bind(this, stream, opt.signature, opt.timeout),
-    this.setOptions.bind(this, stream, parameters, opt.timeout),
-    this.enterProgrammingMode.bind(this, stream, opt.timeout),
-    this.upload.bind(this, stream, hex, opt.pageSize, opt.timeout),
-    this.verify.bind(this, stream, hex, opt.pageSize, opt.timeout),
-    this.exitProgrammingMode.bind(this, stream, opt.timeout)
-  ], function(error){
-  	return done(error);
-  });
+  await this.sync(stream, 3);
+  await this.verifySignature(stream);
+  await this.setOptions(stream, parameters);
+  await this.enterProgrammingMode(stream);
+  await this.upload(stream, hex);
+  await this.verify(stream, hex);
+  await this.exitProgrammingMode(stream);
 };
 
 module.exports = stk500;
