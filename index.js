@@ -184,6 +184,19 @@ stk500.prototype.loadPage = async function (stream, writeBytes) {
   else return data;
 };
 
+stk500.prototype.erase = async function (stream) {
+  const cmd = Buffer.from([Statics.Cmnd_STK_ERASE, Statics.Sync_CRC_EOP]);
+  const opt = {
+    cmd: cmd,
+    responseData: Statics.OK_RESPONSE,
+    timeout: this.opts.timeout
+  }
+  const [error, data] = await sendCommand(stream, opt);
+
+  this.log('erase prog memory', error, data);
+  if (error) throw error;
+  else return data;
+}
 
 stk500.prototype.upload = async function (stream, hex) {
   this.log('program');
@@ -279,6 +292,7 @@ stk500.prototype.bootload = async function (stream, hex) {
   await this.verifySignature(stream);
   await this.setOptions(stream, parameters);
   await this.enterProgrammingMode(stream);
+  await this.erase(stream);
   await this.upload(stream, hex);
   await this.verify(stream, hex);
   await this.exitProgrammingMode(stream);
