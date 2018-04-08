@@ -30,26 +30,25 @@ describe('sendCommands', function () {
   });
 
 
-  it('should write a buffer command', function (done) {
+  it('should write a buffer command', function () {
     var writeSpy = sandbox.spy(hardware, 'write');
-    var cmd = new Buffer([Statics.Cmnd_STK_GET_SYNC, Statics.Sync_CRC_EOP]);
+    var cmd = Buffer.from([Statics.Cmnd_STK_GET_SYNC, Statics.Sync_CRC_EOP]);
     var opt = {
       cmd: cmd,
       responseData: Statics.OK_RESPONSE,
       timeout: 10
     };
-    sendCommand(hardware, opt, function (err, data) {
+    setTimeout(function(){
+      hardware.insert(Statics.OK_RESPONSE);
+    }, 10);
+    return sendCommand(hardware, opt).then(() => {
       var matched = bufferEqual(writeSpy.args[0][0], cmd);
       Should.exist(matched);
       matched.should.equal(true);
-      done();
-    });
-    process.nextTick(function(){
-      hardware.insert(Statics.OK_RESPONSE);
     });
   });
 
-  it('should write an array command', function (done) {
+  it('should write an array command', function () {
     var writeSpy = sandbox.spy(hardware, 'write');
     var opt = {
       cmd: [
@@ -58,18 +57,19 @@ describe('sendCommands', function () {
       responseData: Statics.OK_RESPONSE,
       timeout: 10
     };
-    sendCommand(hardware, opt, function (err, data) {
+
+    setTimeout(function(){
+      hardware.insert(Statics.OK_RESPONSE);
+    }, 10);
+
+    return sendCommand(hardware, opt).then(() => {
       var matched = bufferEqual(writeSpy.args[0][0], new Buffer([Statics.Cmnd_STK_GET_SYNC, Statics.Sync_CRC_EOP]));
       Should.exist(matched);
       matched.should.equal(true);
-      done();
-    });
-    process.nextTick(function(){
-      hardware.insert(Statics.OK_RESPONSE);
     });
   });
 
-  it('should timeout', function (done) {
+  it('should timeout', function () {
     var opt = {
       cmd: [
         Statics.Cmnd_STK_GET_SYNC
@@ -78,18 +78,13 @@ describe('sendCommands', function () {
       timeout: 10
     };
 
-    sendCommand(hardware, opt, function (err, data) {
-      if (err) {
-        err.message.should.equal('Sending 3020: receiveData timeout after 10ms');
-        return done();
-      }
-      done(new Error('Did not time out'));
-      done();
+    sendCommand(hardware, opt).catch((err) => {
+      err.message.should.equal('receiveData timeout after 10ms');
     });
 
   });
 
-  it('should get n number of bytes', function (done) {
+  it('should get n number of bytes', function () {
     var opt = {
       cmd: [
         Statics.Cmnd_STK_GET_SYNC
@@ -98,23 +93,19 @@ describe('sendCommands', function () {
       timeout: 10
     };
 
-    sendCommand(hardware, opt, function (err, data) {
-      if (err) {
-        return done(err);
-      }
-      Should.not.exist(err);
+    setTimeout(function(){
+      hardware.insert(Statics.OK_RESPONSE);
+    }, 10);
+
+    return sendCommand(hardware, opt).then((data) => {
+      //Should.not.exist(err);
       var matched = bufferEqual(data, Statics.OK_RESPONSE);
       Should.exist(matched);
       matched.should.equal(true);
-      done();
-
-    });
-    process.nextTick(function(){
-      hardware.insert(Statics.OK_RESPONSE);
     });
   });
 
-  it('should match response', function (done) {
+  it('should match response', function () {
     var opt = {
       cmd: [
         Statics.Cmnd_STK_GET_SYNC
@@ -123,19 +114,14 @@ describe('sendCommands', function () {
       timeout: 10
     };
 
-    sendCommand(hardware, opt, function (err, data) {
-      if (err) {
-        return done(err);
-      }
-      Should.not.exist(err);
+    setTimeout(function(){
+      hardware.insert(Statics.OK_RESPONSE);
+    }, 10);
+
+    return sendCommand(hardware, opt).then((data) => {
       var matched = bufferEqual(data, Statics.OK_RESPONSE);
       Should.exist(matched);
       matched.should.equal(true);
-      done();
-
-    });
-    process.nextTick(function(){
-      hardware.insert(Statics.OK_RESPONSE);
     });
   });
 
