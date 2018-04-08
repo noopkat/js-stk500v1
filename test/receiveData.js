@@ -10,46 +10,37 @@ describe('receiveData', function () {
     });
   });
 
-  it('should receive a matching buffer', function (done) {
+  it('should receive a matching buffer', function () {
     var inputBuffer = Statics.OK_RESPONSE;
-    receiveData(this.port, 10, inputBuffer.length, function (err, data) {
-      if (err) {
-        return done(err);
-      }
-      Should.not.exist(err);
+    setTimeout(() => {this.port.write(inputBuffer)}, 10);
+    return receiveData(this.port, 10, inputBuffer.length).then((data) => { 
       var matched = bufferEqual(data, inputBuffer);
       Should.exist(matched);
       matched.should.equal(true);
-      done();
     });
-    this.port.write(inputBuffer);
   });
 
-  it('should timeout', function (done) {
+  it('should timeout', function () {
     var inputBuffer = Statics.OK_RESPONSE;
-    receiveData(this.port, 10, inputBuffer.length, function (err, data) {
+    setTimeout(() => {this.port.write(inputBuffer.slice(0, 1))}, 10);
+    return receiveData(this.port, 10, inputBuffer.length).catch((err) => {
       if (err) {
         err.message.should.equal('receiveData timeout after 10ms');
-        return done();
       }
-      done(new Error('Did not time out'));
     });
-    this.port.write(inputBuffer.slice(0, 1));
   });
 
-  it('should receive a buffer in chunks', function (done) {
+  it('should receive a buffer in chunks', function () {
     var inputBuffer = Statics.OK_RESPONSE;
-    receiveData(this.port, 10, inputBuffer.length, function (err, data) {
-      if (err) {
-        return done(err);
-      }
-      Should.not.exist(err);
+    setTimeout(() => {
+      this.port.write(inputBuffer.slice(0, 1));
+      this.port.write(inputBuffer.slice(1, 2));
+    }, 10);
+
+    return receiveData(this.port, 10, inputBuffer.length).then((data) => {
       var matched = bufferEqual(data, inputBuffer);
       Should.exist(matched);
       matched.should.equal(true);
-      done();
     });
-    this.port.write(inputBuffer.slice(0, 1));
-    this.port.write(inputBuffer.slice(1, 2));
   });
 });
